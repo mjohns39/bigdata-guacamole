@@ -1,0 +1,739 @@
+REGISTER file:/home/hadoop/lib/pig/piggybank.jar;
+
+rawData = LOAD 's3://mjohns39-cs440/input/gsod/' as (line: chararray);
+
+
+--separate out the fields
+--(Minimum project requirements) Fields of station, wban, year, month, day and temp
+--(Additional project torture)  All the other fields.
+
+
+weatherData = 
+FOREACH rawData GENERATE
+(int)TRIM(SUBSTRING(line, 0, 6)) AS station,
+(int)TRIM(SUBSTRING(line, 6, 12)) AS wban,
+(int)TRIM(SUBSTRING(line, 13, 18)) AS year,
+(int)SUBSTRING(line, 18, 20) AS month,
+(int)SUBSTRING(line, 20, 22) AS day,
+(double)TRIM(SUBSTRING(line, 22, 31)) AS temp,
+(double)TRIM(SUBSTRING(line, 35, 42)) AS dewPoint,
+(double)TRIM(SUBSTRING(line, 46, 53)) AS seaLvlPress,
+(double)TRIM(SUBSTRING(line, 57, 64)) AS stationPress,
+(double)TRIM(SUBSTRING(line, 68, 74)) AS visibility,
+(double)TRIM(SUBSTRING(line, 78, 83)) AS meanWindSpeed,
+(double)TRIM(SUBSTRING(line, 88, 94)) AS maxWindSpeed,
+(double)TRIM(SUBSTRING(line, 95, 101)) AS maxGust,
+(double)TRIM(SUBSTRING(line, 102, 110)) AS maxTemp,
+(double)TRIM(SUBSTRING(line, 110, 117)) AS minTemp,
+(double)TRIM(SUBSTRING(line, 118, 124)) AS totalPrecipitation,
+(double)TRIM(SUBSTRING(line, 125, 131)) AS snowDepth;
+
+
+--Get Country List Codes
+
+countryCodes = LOAD 's3://mjohns39-cs440/input/ish-history.csv' using PigStorage(',') 
+as (usaf: int, wban2: int, stationName: chararray, country: chararray, fips: chararray, 
+state: chararray, call: chararray, latitude: int, longitude: int, elevation: int); 
+
+
+--Seperate country codes by Northern and Southern Hemispheres (since Spring and Fall are at opposite times of the year by hemisphere)
+
+northernCountryCodes = filter countryCodes by latitude > 0;
+
+southernCountryCodes = filter countryCodes by latitude < 0;
+
+
+
+--Filter null station and null wban from weatherData
+filteredData = filter weatherData by station is not null and wban is not null;
+
+
+
+--Filter out the trash
+
+filteredData = filter filteredData by temp < 5000;  --remove "null" temp values
+
+
+
+
+
+northWeatherData = JOIN filteredData BY (station, wban), northernCountryCodes BY (usaf, wban2);
+
+southWeatherData = join filteredData by (station, wban), southernCountryCodes by (usaf, wban2);
+
+
+
+--Group Data by Month
+northMonthlyData = group northWeatherData by (station, wban, year, month);
+southMonthlyData = group southWeatherData by (station, wban, year, month);
+
+--Group Data by Year
+northYearlyData = group northWeatherData by (station, wban, year);
+southYearlyData = group southWeatherData by (station, wban, year);
+
+
+
+
+
+
+
+
+
+--Calculate average temp for monthly and yearly, separated by north and south of the Equator.
+
+---monthly average by station
+
+northMonthlyStationAvgTemp = foreach northMonthlyData generate
+flatten(group), ROUND(AVG(northWeatherData.temp)*100.0)/100.0 as avgTemp;
+
+
+southMonthlyStationAvgTemp = foreach southMonthlyData generate
+flatten(group), ROUND(AVG(southWeatherData.temp)*100.0)/100.0 as avgTemp;
+
+
+
+---yearly average by station
+northYearlyStationAvgTemp = foreach northYearlyData generate
+flatten(group), ROUND(AVG(northWeatherData.temp)*100.0)/100.0 as avgTemp;
+
+southYearlyStationAvgTemp = foreach southYearlyData generate
+flatten(group), ROUND(AVG(southWeatherData.temp)*100.0)/100.0 as avgTemp;
+
+
+--monthly average temp global.
+
+northMonthlyAvgTempGroup = group northMonthlyStationAvgTemp by (year, month);
+
+northMonthlyGlobalAvgTemp = foreach northMonthlyAvgTempGroup generate
+flatten(group), ROUND(AVG(northMonthlyStationAvgTemp.avgTemp)*100.0)/100.0;
+
+southMonthlyAvgTempGroup = group southMonthlyStationAvgTemp by (year, month);
+
+southMonthlyGlobalAvgTemp = foreach southMonthlyAvgTempGroup generate
+flatten(group), ROUND(AVG(southMonthlyStationAvgTemp.avgTemp)*100.0)/100.0;
+
+
+--yearly average temp global
+northYearlyAvgTempGroup = group northYearlyStationAvgTemp by (year);
+
+northYearlyGlobalAvgTemp = foreach northYearlyAvgTempGroup generate
+flatten(group), ROUND(AVG(northYearlyStationAvgTemp.avgTemp)*100.0)/100.0;
+
+southYearlyAvgTempGroup = group southYearlyStationAvgTemp by (year);
+
+southYearlyGlobalAvgTemp = foreach southYearlyAvgTempGroup generate
+flatten(group), ROUND(AVG(southYearlyStationAvgTemp.avgTemp)*100.0)/100.0;
+
+
+
+----------------------------------------------Other Random Data Analysis-------------------------------------------------------------------
+
+
+
+
+--filter out the extra trash
+
+northMeanWindSpeedData = filter northWeatherData by meanWindSpeed < 1000 and meanWindSpeed is not null;
+southMeanWindSpeedData = filter southWeatherData by meanWindSpeed < 1000 and meanWindSpeed is not null;
+
+northMaxWindSpeedData = filter northWeatherData by maxWindSpeed < 1000 and maxWindSpeed is not null;
+southMaxWindSpeedData = filter southWeatherData by maxWindSpeed < 1000 and maxWindSpeed is not null;
+
+northMaxGustData = filter northWeatherData by maxGust < 500 and maxGust is not null;
+southMaxGustData = filter southWeatherData by maxGust < 500 and maxGust is not null;
+
+northMaxTempData = filter northWeatherData by maxTemp < 500 and maxTemp is not null;
+southMaxTempData = filter southWeatherData by maxTemp < 500 and maxTemp is not null;
+
+northMinTempData = filter northWeatherData by minTemp < 500 and minTemp is not null;
+southMinTempData = filter southWeatherData by minTemp < 500 and minTemp is not null;
+
+northTotalPrecipitationData = filter northWeatherData by totalPrecipitation > 0.00 and totalPrecipitation < 99.99 and totalPrecipitation is not null;
+southTotalPrecipitationData = filter southWeatherData by totalPrecipitation > 0.00 and totalPrecipitation < 99.99 and totalPrecipitation is not null;
+
+--averages for extra data
+
+
+---avg wind data by station
+----avg mean wind speed by stations
+
+northMeanWindSpeedStationMonthlyDataGroup = group northMeanWindSpeedData by (station, wban, year, month);
+southMeanWindSpeedStationMonthlyDataGroup = group southMeanWindSpeedData by (station, wban, year, month);
+
+
+northAvgMonthlyMeanWindSpeedStation = foreach northMeanWindSpeedStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(northMeanWindSpeedData.meanWindSpeed)*100.0)/100.0 as avgMeanWindSpeed;
+southAvgMonthlyMeanWindSpeedStation = foreach southMeanWindSpeedStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(southMeanWindSpeedData.meanWindSpeed)*100.0)/100.0 as avgMeanWindSpeed;
+
+
+northAvgMonthlyMeanWindSpeedStationGroup = group northAvgMonthlyMeanWindSpeedStation by (year, month);
+northAvgMonthlyMeanWindSpeedGlobal = foreach northAvgMonthlyMeanWindSpeedStationGroup generate
+flatten(group), ROUND(AVG(northAvgMonthlyMeanWindSpeedStation.avgMeanWindSpeed)*100.0)/100.0;
+
+
+southAvgMonthlyMeanWindSpeedStationGroup = group southAvgMonthlyMeanWindSpeedStation by (year, month);
+southAvgMonthlyMeanWindSpeedGlobal = foreach southAvgMonthlyMeanWindSpeedStationGroup generate
+flatten(group), ROUND(AVG(southAvgMonthlyMeanWindSpeedStation.avgMeanWindSpeed)*100.0)/100.0;
+
+------year
+
+northMeanWindSpeedStationYearDataGroup = group northMeanWindSpeedData by (station, wban, year);
+southMeanWindSpeedStationYearDataGroup = group southMeanWindSpeedData by (station, wban, year);
+
+
+northAvgYearMeanWindSpeedStation = foreach northMeanWindSpeedStationYearDataGroup generate
+flatten(group), ROUND(AVG(northMeanWindSpeedData.meanWindSpeed)*100.0)/100.0 as avgMeanWindSpeed;
+southAvgYearMeanWindSpeedStation = foreach southMeanWindSpeedStationYearDataGroup generate
+flatten(group), ROUND(AVG(southMeanWindSpeedData.meanWindSpeed)*100.0)/100.0 as avgMeanWindSpeed;
+
+
+northAvgYearMeanWindSpeedStationGroup = group northAvgYearMeanWindSpeedStation by (year);
+northAvgYearMeanWindSpeedGlobal = foreach northAvgYearMeanWindSpeedStationGroup generate
+flatten(group), ROUND(AVG(northAvgYearMeanWindSpeedStation.avgMeanWindSpeed)*100.0)/100.0;
+
+
+southAvgYearMeanWindSpeedStationGroup = group southAvgYearMeanWindSpeedStation by (year);
+southAvgYearMeanWindSpeedGlobal = foreach southAvgYearMeanWindSpeedStationGroup generate
+flatten(group), ROUND(AVG(southAvgYearMeanWindSpeedStation.avgMeanWindSpeed)*100.0)/100.0;
+
+
+
+
+
+---avg max wind speed by station
+northMaxWindSpeedStationMonthlyDataGroup = group northMaxWindSpeedData by (station, wban, year, month);
+southMaxWindSpeedStationMonthlyDataGroup = group southMaxWindSpeedData by (station, wban, year, month);
+
+
+northAvgMonthlyMaxWindSpeedStation = foreach northMaxWindSpeedStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(northMaxWindSpeedData.maxWindSpeed)*100.0)/100.0 as avgMaxWindSpeed;
+southAvgMonthlyMaxWindSpeedStation = foreach southMaxWindSpeedStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(southMaxWindSpeedData.maxWindSpeed)*100.0)/100.0 as avgMaxWindSpeed;
+
+
+northAvgMonthlyMaxWindSpeedStationGroup = group northAvgMonthlyMaxWindSpeedStation by (year, month);
+northAvgMonthlyMaxWindSpeedGlobal = foreach northAvgMonthlyMaxWindSpeedStationGroup generate
+flatten(group), ROUND(AVG(northAvgMonthlyMaxWindSpeedStation.avgMaxWindSpeed)*100.0)/100.0;
+
+
+southAvgMonthlyMaxWindSpeedStationGroup = group southAvgMonthlyMaxWindSpeedStation by (year, month);
+southAvgMonthlyMaxWindSpeedGlobal = foreach southAvgMonthlyMaxWindSpeedStationGroup generate
+flatten(group), ROUND(AVG(southAvgMonthlyMaxWindSpeedStation.avgMaxWindSpeed)*100.0)/100.0;
+
+
+
+-----year
+
+northMaxWindSpeedStationYearDataGroup = group northMaxWindSpeedData by (station, wban, year);
+southMaxWindSpeedStationYearDataGroup = group southMaxWindSpeedData by (station, wban, year);
+
+
+northAvgYearMaxWindSpeedStation = foreach northMaxWindSpeedStationYearDataGroup generate
+flatten(group), ROUND(AVG(northMaxWindSpeedData.maxWindSpeed)*100.0)/100.0 as avgMaxWindSpeed;
+southAvgYearMaxWindSpeedStation = foreach southMaxWindSpeedStationYearDataGroup generate
+flatten(group), ROUND(AVG(southMaxWindSpeedData.maxWindSpeed)*100.0)/100.0 as avgMaxWindSpeed;
+
+
+northAvgYearMaxWindSpeedStationGroup = group northAvgYearMaxWindSpeedStation by (year);
+northAvgYearMaxWindSpeedGlobal = foreach northAvgYearMaxWindSpeedStationGroup generate
+flatten(group), ROUND(AVG(northAvgYearMaxWindSpeedStation.avgMaxWindSpeed)*100.0)/100.0;
+
+
+southAvgYearMaxWindSpeedStationGroup = group southAvgYearMaxWindSpeedStation by (year);
+southAvgYearMaxWindSpeedGlobal = foreach southAvgYearMaxWindSpeedStationGroup generate
+flatten(group), ROUND(AVG(southAvgYearMaxWindSpeedStation.avgMaxWindSpeed)*100.0)/100.0;
+
+
+
+---avg max gust by station
+northMaxGustStationMonthlyDataGroup = group northMaxGustData by (station, wban, year, month);
+southMaxGustStationMonthlyDataGroup = group southMaxGustData by (station, wban, year, month);
+
+
+northAvgMonthlyMaxGustStation = foreach northMaxGustStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(northMaxGustData.maxGust)*100.0)/100.0 as avgMaxGust;
+southAvgMonthlyMaxGustStation = foreach southMaxGustStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(southMaxGustData.maxGust)*100.0)/100.0 as avgMaxGust;
+
+
+northAvgMonthlyMaxGustStationGroup = group northAvgMonthlyMaxGustStation by (year, month);
+northAvgMonthlyMaxGustGlobal = foreach northAvgMonthlyMaxGustStationGroup generate
+flatten(group), ROUND(AVG(northAvgMonthlyMaxGustStation.avgMaxGust)*100.0)/100.0;
+
+
+southAvgMonthlyMaxGustStationGroup = group southAvgMonthlyMaxGustStation by (year, month);
+southAvgMonthlyMaxGustGlobal = foreach southAvgMonthlyMaxGustStationGroup generate
+flatten(group), ROUND(AVG(southAvgMonthlyMaxGustStation.avgMaxGust)*100.0)/100.0;
+
+
+
+-----year
+
+northMaxGustStationYearDataGroup = group northMaxGustData by (station, wban, year);
+southMaxGustStationYearDataGroup = group southMaxGustData by (station, wban, year);
+
+
+northAvgYearMaxGustStation = foreach northMaxGustStationYearDataGroup generate
+flatten(group), ROUND(AVG(northMaxGustData.maxGust)*100.0)/100.0 as avgMaxGust;
+southAvgYearMaxGustStation = foreach southMaxGustStationYearDataGroup generate
+flatten(group), ROUND(AVG(southMaxGustData.maxGust)*100.0)/100.0 as avgMaxGust;
+
+
+northAvgYearMaxGustStationGroup = group northAvgYearMaxGustStation by (year);
+northAvgYearMaxGustGlobal = foreach northAvgYearMaxGustStationGroup generate
+flatten(group), ROUND(AVG(northAvgYearMaxGustStation.avgMaxGust)*100.0)/100.0;
+
+
+southAvgYearMaxGustStationGroup = group southAvgYearMaxGustStation by (year);
+southAvgYearMaxGustGlobal = foreach southAvgYearMaxGustStationGroup generate
+flatten(group), ROUND(AVG(southAvgYearMaxGustStation.avgMaxGust)*100.0)/100.0;
+
+
+---avg max temp by station
+northMaxTempStationMonthlyDataGroup = group northMaxTempData by (station, wban, year, month);
+southMaxTempStationMonthlyDataGroup = group southMaxTempData by (station, wban, year, month);
+
+
+northAvgMonthlyMaxTempStation = foreach northMaxTempStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(northMaxTempData.maxTemp)*100.0)/100.0 as avgMaxTemp;
+southAvgMonthlyMaxTempStation = foreach southMaxTempStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(southMaxTempData.maxTemp)*100.0)/100.0 as avgMaxTemp;
+
+
+northAvgMonthlyMaxTempStationGroup = group northAvgMonthlyMaxTempStation by (year, month);
+northAvgMonthlyMaxTempGlobal = foreach northAvgMonthlyMaxTempStationGroup generate
+flatten(group), ROUND(AVG(northAvgMonthlyMaxTempStation.avgMaxTemp)*100.0)/100.0;
+
+
+southAvgMonthlyMaxTempStationGroup = group southAvgMonthlyMaxTempStation by (year, month);
+southAvgMonthlyMaxTempGlobal = foreach southAvgMonthlyMaxTempStationGroup generate
+flatten(group), ROUND(AVG(southAvgMonthlyMaxTempStation.avgMaxTemp)*100.0)/100.0;
+
+
+------year
+northMaxTempStationYearDataGroup = group northMaxTempData by (station, wban, year);
+southMaxTempStationYearDataGroup = group southMaxTempData by (station, wban, year);
+
+
+northAvgYearMaxTempStation = foreach northMaxTempStationYearDataGroup generate
+flatten(group), ROUND(AVG(northMaxTempData.maxTemp)*100.0)/100.0 as avgMaxTemp;
+southAvgYearMaxTempStation = foreach southMaxTempStationYearDataGroup generate
+flatten(group), ROUND(AVG(southMaxTempData.maxTemp)*100.0)/100.0 as avgMaxTemp;
+
+
+northAvgYearMaxTempStationGroup = group northAvgYearMaxTempStation by (year);
+northAvgYearMaxTempGlobal = foreach northAvgYearMaxTempStationGroup generate
+flatten(group), ROUND(AVG(northAvgYearMaxTempStation.avgMaxTemp)*100.0)/100.0;
+
+
+southAvgYearMaxTempStationGroup = group southAvgYearMaxTempStation by (year);
+southAvgYearMaxTempGlobal = foreach southAvgYearMaxTempStationGroup generate
+flatten(group), ROUND(AVG(southAvgYearMaxTempStation.avgMaxTemp)*100.0)/100.0;
+
+
+
+
+
+---avg min temp by station
+northMinTempStationMonthlyDataGroup = group northMinTempData by (station, wban, year, month);
+southMinTempStationMonthlyDataGroup = group southMinTempData by (station, wban, year, month);
+
+
+northAvgMonthlyMinTempStation = foreach northMinTempStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(northMinTempData.minTemp)*100.0)/100.0 as avgMinTemp;
+southAvgMonthlyMinTempStation = foreach southMinTempStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(southMinTempData.minTemp)*100.0)/100.0 as avgMinTemp;
+
+
+northAvgMonthlyMinTempStationGroup = group northAvgMonthlyMinTempStation by (year, month);
+northAvgMonthlyMinTempGlobal = foreach northAvgMonthlyMinTempStationGroup generate
+flatten(group), ROUND(AVG(northAvgMonthlyMinTempStation.avgMinTemp)*100.0)/100.0;
+
+
+southAvgMonthlyMinTempStationGroup = group southAvgMonthlyMinTempStation by (year, month);
+southAvgMonthlyMinTempGlobal = foreach southAvgMonthlyMinTempStationGroup generate
+flatten(group), ROUND(AVG(southAvgMonthlyMinTempStation.avgMinTemp)*100.0)/100.0;
+
+
+---------year
+
+
+northMinTempStationYearDataGroup = group northMinTempData by (station, wban, year);
+southMinTempStationYearDataGroup = group southMinTempData by (station, wban, year);
+
+
+northAvgYearMinTempStation = foreach northMinTempStationYearDataGroup generate
+flatten(group), ROUND(AVG(northMinTempData.minTemp)*100.0)/100.0 as avgMinTemp;
+southAvgYearMinTempStation = foreach southMinTempStationYearDataGroup generate
+flatten(group), ROUND(AVG(southMinTempData.minTemp)*100.0)/100.0 as avgMinTemp;
+
+
+northAvgYearMinTempStationGroup = group northAvgYearMinTempStation by (year);
+northAvgYearMinTempGlobal = foreach northAvgYearMinTempStationGroup generate
+flatten(group), ROUND(AVG(northAvgYearMinTempStation.avgMinTemp)*100.0)/100.0;
+
+
+southAvgYearMinTempStationGroup = group southAvgYearMinTempStation by (year);
+southAvgYearMinTempGlobal = foreach southAvgYearMinTempStationGroup generate
+flatten(group), ROUND(AVG(southAvgYearMinTempStation.avgMinTemp)*100.0)/100.0;
+
+
+
+---avg precipitation by station
+--TotalPrecipitation
+
+northTotalPrecipitationStationMonthlyDataGroup = group northTotalPrecipitationData by (station, wban, year, month);
+southTotalPrecipitationStationMonthlyDataGroup = group southTotalPrecipitationData by (station, wban, year, month);
+
+
+northAvgMonthlyTotalPrecipitationStation = foreach northTotalPrecipitationStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(northTotalPrecipitationData.totalPrecipitation)*100.0)/100.0 as avgTotalPrecipitation;
+southAvgMonthlyTotalPrecipitationStation = foreach southTotalPrecipitationStationMonthlyDataGroup generate
+flatten(group), ROUND(AVG(southTotalPrecipitationData.totalPrecipitation)*100.0)/100.0 as avgTotalPrecipitation;
+
+
+northAvgMonthlyTotalPrecipitationStationGroup = group northAvgMonthlyTotalPrecipitationStation by (year, month);
+northAvgMonthlyTotalPrecipitationGlobal = foreach northAvgMonthlyTotalPrecipitationStationGroup generate
+flatten(group), ROUND(AVG(northAvgMonthlyTotalPrecipitationStation.avgTotalPrecipitation)*100.0)/100.0;
+
+
+southAvgMonthlyTotalPrecipitationStationGroup = group southAvgMonthlyTotalPrecipitationStation by (year, month);
+southAvgMonthlyTotalPrecipitationGlobal = foreach southAvgMonthlyTotalPrecipitationStationGroup generate
+flatten(group), ROUND(AVG(southAvgMonthlyTotalPrecipitationStation.avgTotalPrecipitation)*100.0)/100.0;
+
+
+-----year
+
+northTotalPrecipitationStationYearDataGroup = group northTotalPrecipitationData by (station, wban, year);
+southTotalPrecipitationStationYearDataGroup = group southTotalPrecipitationData by (station, wban, year);
+
+
+northAvgYearTotalPrecipitationStation = foreach northTotalPrecipitationStationYearDataGroup generate
+flatten(group), ROUND(AVG(northTotalPrecipitationData.totalPrecipitation)*100.0)/100.0 as avgTotalPrecipitation;
+southAvgYearTotalPrecipitationStation = foreach southTotalPrecipitationStationYearDataGroup generate
+flatten(group), ROUND(AVG(southTotalPrecipitationData.totalPrecipitation)*100.0)/100.0 as avgTotalPrecipitation;
+
+
+northAvgYearTotalPrecipitationStationGroup = group northAvgYearTotalPrecipitationStation by (year);
+northAvgYearTotalPrecipitationGlobal = foreach northAvgYearTotalPrecipitationStationGroup generate
+flatten(group), ROUND(AVG(northAvgYearTotalPrecipitationStation.avgTotalPrecipitation)*100.0)/100.0;
+
+
+southAvgYearTotalPrecipitationStationGroup = group southAvgYearTotalPrecipitationStation by (year);
+southAvgYearTotalPrecipitationGlobal = foreach southAvgYearTotalPrecipitationStationGroup generate
+flatten(group), ROUND(AVG(southAvgYearTotalPrecipitationStation.avgTotalPrecipitation)*100.0)/100.0;
+
+
+
+--DATA ANALYSIS DONE!
+--Rejoin averages tables with their country names tables for later use; where applicable.
+
+---get country names from s3
+
+countriesData = load 's3://mjohns39-cs440/input/country-list.txt' as (line: chararray);
+
+countries = foreach countriesData generate
+TRIM(SUBSTRING(line, 0, 2)) as country,
+TRIM(SUBSTRING(line, 12, 90)) as countryName;
+
+
+northernCountries = join northernCountryCodes by country, countries by country; 
+southernCountries = join southernCountryCodes by country, countries by country;
+
+
+--Temp
+
+
+FINAL_NorthMonthlyStationAvgTemp = join northMonthlyStationAvgTemp by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthMonthlyStationAvgTemp = join southMonthlyStationAvgTemp by (station, wban), southernCountries by (usaf, wban2);
+
+
+
+FINAL_NorthYearlyStationAvgTemp = join northYearlyStationAvgTemp by (station, wban), northernCountries by (usaf, wban2);
+FINAL_SouthYearlyStationAvgTemp = join southYearlyStationAvgTemp by (station, wban), southernCountries by (usaf, wban2);
+
+
+FINAL_NorthMonthlyGlobalAvgTemp = northMonthlyGlobalAvgTemp;
+FINAL_SouthMonthlyGlobalAvgTemp = southMonthlyGlobalAvgTemp;
+
+
+FINAL_NorthYearlyGlobalAvgTemp = northYearlyGlobalAvgTemp;
+FINAL_SouthYearlyGlobalAvgTemp = southYearlyGlobalAvgTemp;
+
+
+store FINAL_NorthMonthlyStationAvgTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/Temperature/FINAL_NorthMonthlyStationAvgTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_SouthMonthlyStationAvgTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/Temperature/FINAL_SouthMonthlyStationAvgTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyStationAvgTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/Temperature/FINAL_NorthYearlyStationAvgTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyStationAvgTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/Temperature/FINAL_SouthYearlyStationAvgTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthMonthlyGlobalAvgTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/Temperature/FINAL_NorthMonthlyGlobalAvgTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_SouthMonthlyGlobalAvgTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/Temperature/FINAL_SouthMonthlyGlobalAvgTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyGlobalAvgTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/Temperature/FINAL_NorthYearlyGlobalAvgTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyGlobalAvgTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/Temperature/FINAL_SouthYearlyGlobalAvgTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+--Mean Wind Speed
+
+
+FINAL_NorthMonthlyStationAvgMeanWindSpeed = join northAvgMonthlyMeanWindSpeedStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthMonthlyStationAvgMeanWindSpeed = join southAvgMonthlyMeanWindSpeedStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+
+FINAL_NorthYearlyStationAvgMeanWindSpeed = join northAvgYearMeanWindSpeedStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthYearlyStationAvgMeanWindSpeed = join northAvgYearMeanWindSpeedStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+FINAL_NorthMonthlyGlobalAvgMeanWindSpeed = northAvgMonthlyMeanWindSpeedGlobal;
+FINAL_SouthMonthlyGlobalAvgMeanWindSpeed = southAvgMonthlyMeanWindSpeedGlobal;
+
+
+FINAL_NorthYearlyGlobalAvgMeanWindSpeed = northAvgYearMeanWindSpeedGlobal;
+FINAL_SouthYearlyGlobalAvgMeanWindSpeed = southAvgYearMeanWindSpeedGlobal;
+
+store FINAL_NorthMonthlyStationAvgMeanWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/North/MeanWindSpeed/FINAL_NorthMonthlyStationAvgMeanWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyStationAvgMeanWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/South/MeanWindSpeed/FINAL_SouthMonthlyStationAvgMeanWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyStationAvgMeanWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/North/MeanWindSpeed/FINAL_NorthYearlyStationAvgMeanWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyStationAvgMeanWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/South/MeanWindSpeed/FINAL_SouthYearlyStationAvgMeanWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthMonthlyGlobalAvgMeanWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/North/MeanWindSpeed/FINAL_NorthMonthlyGlobalAvgMeanWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyGlobalAvgMeanWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/South/MeanWindSpeed/FINAL_SouthMonthlyGlobalAvgMeanWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyGlobalAvgMeanWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/North/MeanWindSpeed/FINAL_NorthYearlyGlobalAvgMeanWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyGlobalAvgMeanWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/South/MeanWindSpeed/FINAL_SouthYearlyGlobalAvgMeanWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+
+--Max Wind Speed
+
+
+
+FINAL_NorthMonthlyStationAvgMaxWindSpeed = join northAvgMonthlyMaxWindSpeedStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthMonthlyStationAvgMaxWindSpeed = join southAvgMonthlyMaxWindSpeedStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+
+FINAL_NorthYearlyStationAvgMaxWindSpeed = join northAvgYearMaxWindSpeedStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthYearlyStationAvgMaxWindSpeed = join northAvgYearMaxWindSpeedStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+FINAL_NorthMonthlyGlobalAvgMaxWindSpeed = northAvgMonthlyMaxWindSpeedGlobal;
+FINAL_SouthMonthlyGlobalAvgMaxWindSpeed = southAvgMonthlyMaxWindSpeedGlobal;
+
+
+FINAL_NorthYearlyGlobalAvgMaxWindSpeed = northAvgYearMaxWindSpeedGlobal;
+FINAL_SouthYearlyGlobalAvgMaxWindSpeed = southAvgYearMaxWindSpeedGlobal;
+
+
+store FINAL_NorthMonthlyStationAvgMaxWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxWindSpeed/FINAL_NorthMonthlyStationAvgMaxWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyStationAvgMaxWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxWindSpeed/FINAL_SouthMonthlyStationAvgMaxWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyStationAvgMaxWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxWindSpeed/FINAL_NorthYearlyStationAvgMaxWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyStationAvgMaxWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxWindSpeed/FINAL_SouthYearlyStationAvgMaxWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthMonthlyGlobalAvgMaxWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxWindSpeed/FINAL_NorthMonthlyGlobalAvgMaxWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyGlobalAvgMaxWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxWindSpeed/FINAL_SouthMonthlyGlobalAvgMaxWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyGlobalAvgMaxWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxWindSpeed/FINAL_NorthYearlyGlobalAvgMaxWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyGlobalAvgMaxWindSpeed into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxWindSpeed/FINAL_SouthYearlyGlobalAvgMaxWindSpeed'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+--Gust
+
+FINAL_NorthMonthlyStationAvgMaxGust = join northAvgMonthlyMaxGustStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthMonthlyStationAvgMaxGust = join southAvgMonthlyMaxGustStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+
+FINAL_NorthYearlyStationAvgMaxGust = join northAvgYearMaxGustStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthYearlyStationAvgMaxGust = join northAvgYearMaxGustStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+FINAL_NorthMonthlyGlobalAvgMaxGust = northAvgMonthlyMaxGustGlobal;
+FINAL_SouthMonthlyGlobalAvgMaxGust = southAvgMonthlyMaxGustGlobal;
+
+
+FINAL_NorthYearlyGlobalAvgMaxGust = northAvgYearMaxGustGlobal;
+FINAL_SouthYearlyGlobalAvgMaxGust = southAvgYearMaxGustGlobal;
+
+store FINAL_NorthMonthlyStationAvgMaxGust into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxGust/FINAL_NorthMonthlyStationAvgMaxGust'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyStationAvgMaxGust into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxGust/FINAL_SouthMonthlyStationAvgMaxGust'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyStationAvgMaxGust into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxGust/FINAL_NorthYearlyStationAvgMaxGust'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyStationAvgMaxGust into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxGust/FINAL_SouthYearlyStationAvgMaxGust'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthMonthlyGlobalAvgMaxGust into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxGust/FINAL_NorthMonthlyGlobalAvgMaxGust'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyGlobalAvgMaxGust into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxGust/FINAL_SouthMonthlyGlobalAvgMaxGust'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyGlobalAvgMaxGust into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxGust/FINAL_NorthYearlyGlobalAvgMaxGust'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyGlobalAvgMaxGust into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxGust/FINAL_SouthYearlyGlobalAvgMaxGust'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+
+--Max Temp
+
+FINAL_NorthMonthlyStationAvgMaxTemp = join northAvgMonthlyMaxTempStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthMonthlyStationAvgMaxTemp = join southAvgMonthlyMaxTempStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+
+FINAL_NorthYearlyStationAvgMaxTemp = join northAvgYearMaxTempStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthYearlyStationAvgMaxTemp = join northAvgYearMaxTempStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+FINAL_NorthMonthlyGlobalAvgMaxTemp = northAvgMonthlyMaxTempGlobal;
+FINAL_SouthMonthlyGlobalAvgMaxTemp = southAvgMonthlyMaxTempGlobal;
+
+
+FINAL_NorthYearlyGlobalAvgMaxTemp = northAvgYearMaxTempGlobal;
+FINAL_SouthYearlyGlobalAvgMaxTemp = southAvgYearMaxTempGlobal;
+
+store FINAL_NorthMonthlyStationAvgMaxTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxTemperature/FINAL_NorthMonthlyStationAvgMaxTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyStationAvgMaxTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxTemperature/FINAL_SouthMonthlyStationAvgMaxTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyStationAvgMaxTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxTemperature/FINAL_NorthYearlyStationAvgMaxTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyStationAvgMaxTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxTemperature/FINAL_SouthYearlyStationAvgMaxTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthMonthlyGlobalAvgMaxTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxTemperature/FINAL_NorthMonthlyGlobalAvgMaxTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyGlobalAvgMaxTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxTemperature/FINAL_SouthMonthlyGlobalAvgMaxTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyGlobalAvgMaxTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/MaxTemperature/FINAL_NorthYearlyGlobalAvgMaxTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyGlobalAvgMaxTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/MaxTemperature/FINAL_SouthYearlyGlobalAvgMaxTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+
+--Min Temp
+
+FINAL_NorthMonthlyStationAvgMinTemp = join northAvgMonthlyMinTempStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthMonthlyStationAvgMinTemp = join southAvgMonthlyMinTempStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+
+FINAL_NorthYearlyStationAvgMinTemp = join northAvgYearMinTempStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthYearlyStationAvgMinTemp = join northAvgYearMinTempStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+FINAL_NorthMonthlyGlobalAvgMinTemp = northAvgMonthlyMinTempGlobal;
+FINAL_SouthMonthlyGlobalAvgMinTemp = southAvgMonthlyMinTempGlobal;
+
+
+FINAL_NorthYearlyGlobalAvgMinTemp = northAvgYearMinTempGlobal;
+FINAL_SouthYearlyGlobalAvgMinTemp = southAvgYearMinTempGlobal;
+
+
+store FINAL_NorthMonthlyStationAvgMinTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/MinTemperature/FINAL_NorthMonthlyStationAvgMinTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyStationAvgMinTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/MinTemperature/FINAL_SouthMonthlyStationAvgMinTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyStationAvgMinTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/MinTemperature/FINAL_NorthYearlyStationAvgMinTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyStationAvgMinTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/MinTemperature/FINAL_SouthYearlyStationAvgMinTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthMonthlyGlobalAvgMinTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/MinTemperature/FINAL_NorthMonthlyGlobalAvgMinTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyGlobalAvgMinTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/MinTemperature/FINAL_SouthMonthlyGlobalAvgMinTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyGlobalAvgMinTemp into 's3://mjohns39-cs440/output/FINAL_DATA/North/MinTemperature/FINAL_NorthYearlyGlobalAvgMinTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyGlobalAvgMinTemp into 's3://mjohns39-cs440/output/FINAL_DATA/South/MinTemperature/FINAL_SouthYearlyGlobalAvgMinTemp'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+
+--Precipitation
+
+FINAL_NorthMonthlyStationAvgTotalPrecipitation = join northAvgMonthlyTotalPrecipitationStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthMonthlyStationAvgTotalPrecipitation = join southAvgMonthlyTotalPrecipitationStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+
+FINAL_NorthYearlyStationAvgTotalPrecipitation = join northAvgYearTotalPrecipitationStation by (station, wban), northernCountries by (usaf, wban2);
+
+FINAL_SouthYearlyStationAvgTotalPrecipitation = join northAvgYearTotalPrecipitationStation by (station, wban), southernCountries by (usaf, wban2);
+
+
+FINAL_NorthMonthlyGlobalAvgTotalPrecipitation = northAvgMonthlyTotalPrecipitationGlobal;
+FINAL_SouthMonthlyGlobalAvgTotalPrecipitation = southAvgMonthlyTotalPrecipitationGlobal;
+
+
+FINAL_NorthYearlyGlobalAvgTotalPrecipitation = northAvgYearTotalPrecipitationGlobal;
+FINAL_SouthYearlyGlobalAvgTotalPrecipitation = southAvgYearTotalPrecipitationGlobal;
+
+
+store FINAL_NorthMonthlyStationAvgTotalPrecipitation into 's3://mjohns39-cs440/output/FINAL_DATA/North/TotalPrecipitation/FINAL_NorthMonthlyStationAvgTotalPrecipitation'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyStationAvgTotalPrecipitation into 's3://mjohns39-cs440/output/FINAL_DATA/South/TotalPrecipitation/FINAL_SouthMonthlyStationAvgTotalPrecipitation'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyStationAvgTotalPrecipitation into 's3://mjohns39-cs440/output/FINAL_DATA/North/TotalPrecipitation/FINAL_NorthYearlyStationAvgTotalPrecipitation'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyStationAvgTotalPrecipitation into 's3://mjohns39-cs440/output/FINAL_DATA/South/TotalPrecipitation/FINAL_SouthYearlyStationAvgTotalPrecipitation'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthMonthlyGlobalAvgTotalPrecipitation into 's3://mjohns39-cs440/output/FINAL_DATA/North/TotalPrecipitation/FINAL_NorthMonthlyGlobalAvgTotalPrecipitation'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthMonthlyGlobalAvgTotalPrecipitation into 's3://mjohns39-cs440/output/FINAL_DATA/South/TotalPrecipitation/FINAL_SouthMonthlyGlobalAvgTotalPrecipitation'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+store FINAL_NorthYearlyGlobalAvgTotalPrecipitation into 's3://mjohns39-cs440/output/FINAL_DATA/North/TotalPrecipitation/FINAL_NorthYearlyGlobalAvgTotalPrecipitation'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+store FINAL_SouthYearlyGlobalAvgTotalPrecipitation into 's3://mjohns39-cs440/output/FINAL_DATA/South/TotalPrecipitation/FINAL_SouthYearlyGlobalAvgTotalPrecipitation'
+USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'NO_MULTILINE', 'WINDOWS');
+
+
+

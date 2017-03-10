@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="http://mbostock.github.com/d3/d3.js"></script>
+</head>
+<body>
+    <script>		
+		
+		d3.csv("Data/NorthYearMaxTempGlobal.csv", function (data) { 
+		
+		
+			data.forEach(function (d) { d.year = +d.year; });
+			data.forEach(function (d) { d.avgTemp = + d.avgTemp; });
+			
+			var width = 1000;
+			var height = 500;
+			var margin = 100;
+			
+			var minYear = d3.min(data, function(d) { return d.year; });
+			var maxYear = d3.max(data, function(d) { return d.year; });
+
+			
+			var minTemp = 0;
+			var maxTemp = d3.max(data, function(d) { return d.maxTemp; }) + 10;
+						
+			
+			var xScale = d3.scale.linear()
+							.domain([minYear, maxYear + 1])
+							.range([0 + margin, width - margin]);
+			var yScale = d3.scale.linear()
+							.domain([maxTemp, minTemp])
+							.range([0 + margin, height - margin]);
+									
+
+									
+			var canvas = d3.select("body")
+							.append("svg")
+							.attr("width", width)
+							.attr("height", height);
+			//Create Axes
+			
+			
+			var xAxis = d3.svg.axis()
+								.scale(xScale)
+								.tickFormat(d3.format("04d"));
+			var yAxis = d3.svg.axis()
+								.scale(yScale)
+								.orient("left");
+			
+			canvas.append("text")
+					.attr("fill", "black")
+					.text("Global Max Annual Temperature for Northern Hemisphere:  1929 - 2009")
+					.attr("x", width/4)
+					.attr("y", margin)
+					.attr("font-size", 20);
+			
+			
+			canvas.append("g")
+					.attr("transform", "translate(0,"+ (height - margin) + ")")
+					.call(xAxis);
+					
+			canvas.append("g")
+					.attr("transform", "translate(" + margin + ",0)")
+					.call(yAxis);
+
+						
+			//Create Line
+
+			var lineGen = d3.svg.line()
+								.x(function (d) { return xScale(d.year); })
+								.y(function (d) { return yScale(d.maxTemp); });
+			
+			canvas.append('path')
+					.attr('d', lineGen(data))
+					.attr('stroke', 'blue')
+					.attr('stroke-width', 3)
+					.attr('fill', 'none');
+					
+			canvas.append("text")
+					.attr("x", width/2)
+					.attr("y", height - 50)
+					.style("text-anchor", "middle")
+					.text("Year")
+					.fill("Black");
+					
+			canvas.append("text")
+					.attr("x", -1*(margin + 80))
+					.attr("y", margin - 35)
+					.attr("transform", "rotate(-90)")
+					.style("text-anchor", "end")
+					.text("Max Temperature (F)")
+					.fill("Black");
+			
+		
+		})
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+    </script>
+</body>
+</html>

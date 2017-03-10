@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="http://mbostock.github.com/d3/d3.js"></script>
+</head>
+<body>
+    <script>		
+		
+		d3.csv("Data/NorthMonthMaxTempGlobal.csv", function (data) { 
+		
+		
+			data.forEach(function (d) { d.year = +d.year; });
+			data.forEach(function (d) { d.month = +d.month; });
+			data.forEach(function (d) { d.avgTemp = +d.maxTemp; });
+			
+			var width = 1000;
+			var height = 500;
+			var margin = 100;
+			
+			var minMonth = d3.min(data, function(d) { return d.month; });
+			var maxMonth = d3.max(data, function(d) { return d.month; });
+
+			
+			var minTemp = 0;
+			var maxTemp = d3.max(data, function(d) { return d.maxTemp; }) + 10;
+						
+			
+			var xScale = d3.scale.linear()
+							.domain([minMonth, maxMonth])
+							.range([0 + margin, width - margin]);
+			var yScale = d3.scale.linear()
+							.domain([maxTemp, minTemp])
+							.range([0 + margin, height - margin]);
+									
+
+									
+			var dataGroup = d3.nest()
+								.key(function(d) { return d.year; })
+								.entries(data);
+									
+			var canvas = d3.select("body")
+							.append("svg")
+							.attr("width", width)
+							.attr("height", height * 100);
+			//Create Axes
+			
+			
+			var xAxis = d3.svg.axis()
+								.scale(xScale)
+								.tickFormat(d3.format("0d"));
+			var yAxis = d3.svg.axis()
+								.scale(yScale)
+								.orient("left");
+			
+			canvas.append("text")
+					.attr("fill", "black")
+					.text("Global Max Monthly Temperature for Northern Hemisphere:  1929 - 2009")
+					.attr("x", width/4)
+					.attr("y", margin - 15)
+					.attr("font-size", 20);
+			
+			
+			canvas.append("g")
+					.attr("transform", "translate(0,"+ (height - margin) + ")")
+					.call(xAxis);
+					
+			canvas.append("g")
+					.attr("transform", "translate(" + margin + ",0)")
+					.call(yAxis);
+
+						
+			//Create Line
+
+			var lineGen = d3.svg.line()
+								.x(function (d) { return xScale(d.month); })
+								.y(function (d) { return yScale(d.maxTemp); });
+			
+			dataGroup.forEach(function(d, i) {
+				canvas.append('path')
+						.attr('d', lineGen(d.values))
+						.attr('stroke', function(d, j) { return "hsl(" + Math.random() * 360 + ", 100%, 50%"; })
+						.attr('stroke-width', 3)
+						.attr('fill', 'none')
+						.attr('id', 'line_' + d.key);			
+			});
+			
+			
+			//Add Legend	
+			
+			var legendText = canvas.append("text")
+									.style("fill", "black");
+			dataGroup.forEach(function(d, i) {
+			
+				var lSpace = width/dataGroup.length;
+	
+				if(i < 10) {
+					legendText.append("tspan")
+								.attr("x", margin)
+								.attr("y", (height - 30) + (lSpace/2) + i * lSpace * 2)
+								.text(d.key)
+								.on('click', function() { 
+									var active = d.active ? false : true;
+									var opacity = active ? 0 : 1;
+									d3.select("#line_" + d.key).style("opacity", opacity);
+									d.active = active;
+								});
+				
+				
+				}
+				else if (i >= 10 && i < 20) {
+					legendText.append("tspan")
+								.attr("x", margin * 2)
+								.attr("y", (height - 30) + (lSpace/2) + (i - 10) * lSpace * 2)
+								.text(d.key)
+								.on('click', function() {
+									var active = d.active ? false : true;
+									var opacity = active ? 0 : 1;
+									d3.select("#line_" + d.key).style("opacity", opacity);
+									d.active = active;
+								});								
+				}
+				else if (i >= 20 && i < 30) {
+					legendText.append("tspan")
+								.attr("x", margin * 3)
+								.attr("y", (height - 30) + (lSpace/2) + (i - 20) * lSpace * 2)
+								.text(d.key)
+								.on('click', function() { 									
+									var active = d.active ? false : true;
+									var opacity = active ? 0 : 1;
+									d3.select("#line_" + d.key).style("opacity", opacity);
+									d.active = active;
+								});				
+				}
+				else if (i >= 30 && i < 40) {
+					legendText.append("tspan")
+								.attr("x", margin * 4)
+								.attr("y", (height - 30) + (lSpace/2) + (i - 30) * lSpace * 2)
+								.text(d.key)
+								.on('click', function() { 									
+									var active = d.active ? false : true;
+									var opacity = active ? 0 : 1;
+									d3.select("#line_" + d.key).style("opacity", opacity);
+									d.active = active; 
+								});				
+				}
+				else if (i >= 40 && i < 50) {
+					legendText.append("tspan")
+								.attr("x", margin * 5)
+								.attr("y", (height - 30) + (lSpace/2) + (i - 40) * lSpace * 2)
+								.text(d.key)
+								.on('click', function() { 									
+									var active = d.active ? false : true;
+									var opacity = active ? 0 : 1;
+									d3.select("#line_" + d.key).style("opacity", opacity);
+									d.active = active;
+								});				
+				}
+				else if (i >= 50 && i < 60) {
+					legendText.append("tspan")
+								.attr("x", margin * 6)
+								.attr("y", (height - 30) + (lSpace/2) + (i - 50) * lSpace * 2)
+								.text(d.key)
+								.on('click', function() { 
+									var active = d.active ? false : true;
+									var opacity = active ? 0 : 1;
+									d3.select("#line_" + d.key).style("opacity", opacity);
+									d.active = active;
+								});				
+				}
+				else if (i >= 60 && i < 70) {
+					legendText.append("tspan")
+								.attr("x", margin * 7)
+								.attr("y", (height - 30) + (lSpace/2) + (i - 60) * lSpace * 2)
+								.text(d.key)
+								.on('click', function() { 
+									var active = d.active ? false : true;
+									var opacity = active ? 0 : 1;
+									d3.select("#line_" + d.key).style("opacity", opacity);
+									d.active = active;
+								});				
+				}
+				else if (i >= 70 && i < 80) {
+					legendText.append("tspan")
+								.attr("x", margin * 8)
+								.attr("y", (height - 30) + (lSpace/2) + (i - 70) * lSpace * 2)
+								.text(d.key)
+								.on('click', function() { 
+									var active = d.active ? false : true;
+									var opacity = active ? 0 : 1;
+									d3.select("#line_" + d.key).style("opacity", opacity);
+									d.active = active;
+								});				
+				}	
+				else {
+					legendText.append("tspan")
+								.attr("x", margin * 9)
+								.attr("y", (height - 30) + (lSpace/2) + (i - 80) * lSpace * 2)
+								.text(d.key)
+								.on('click', function() { 
+									var active = d.active ? false : true;
+									var opacity = active ? 0 : 1;
+									d3.select("#line_" + d.key).style("opacity", opacity);
+									d.active = active;
+								});				
+				}
+			})
+								
+			canvas.append("text")
+					.attr("x", width/2)
+					.attr("y", height - 50)
+					.style("text-anchor", "middle")
+					.text("Month")
+					.fill("Black");
+					
+			canvas.append("text")
+					.attr("x", -1*(margin + 80))
+					.attr("y", margin - 35)
+					.attr("transform", "rotate(-90)")
+					.style("text-anchor", "end")
+					.text("Max Temperature (F)")
+					.fill("Black");
+					
+					
+			canvas.append("text")
+					.attr("x", (width/2) - 30)
+					.attr("y", 800)
+					.text("Turn off all lines")
+					.on('click', function() {
+						dataGroup.forEach(function(d,i) {
+							d3.select("#line_" + d.key).style("opacity", 0);
+						});		
+					
+					});
+					
+					
+			canvas.append("text")
+					.attr("x", margin)
+					.attr("y", 800)
+					.text("Turn on all lines")
+					.on('click', function() {
+						dataGroup.forEach(function(d,i) {
+							d3.select("#line_" + d.key).style("opacity", 1);
+						
+						});
+					
+					});
+					
+			canvas.append("text")
+					.attr("x", margin)
+					.attr("y", 850)
+					.text("The Year and 'Turn on/off' text is clickable.  You may have to click twice.");
+			
+		
+		})
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+    </script>
+</body>
+</html>
